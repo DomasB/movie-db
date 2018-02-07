@@ -3,7 +3,6 @@
     <input v-model="text" @keyup.enter="search(text)" type="text">
     <input v-model="activation"  type="text">
     <button @click="search(text)">Search</button>
-    <button @click="transformData()">Transform</button>
     <button @click="train()">Train</button>
     <button @click="save()">Save</button>
     <button @click="load()">Load</button>
@@ -14,7 +13,7 @@
         <input v-model="movie.myScore" type="range" min="0" max="10"></input>
         {{movie.myScore}}
         <button @click="deleteMovie(index)">X</button>
-        <button @click="run(index)">Run</button>
+        <button @click="run(index)" :disabled="!trained">Run</button>
       </li>
     </ul>
   </div>
@@ -30,7 +29,8 @@ export default {
       movies:[],
       data:[],
       activation: 'sigmoid',
-      text:""
+      text:"",
+      trained: false
     }
   },
   methods: {
@@ -65,12 +65,24 @@ export default {
           o[property] = (o[property] - min)/(max-min)
         })
       }
+      var genres = [];
+      var genreObject = {};
+      this.movies.map(movie => {
+        movie.Genre.split(', ').map(genre => {
+          if (!genres.includes(genre)) genres.push(genre);
+        })
+      })
       var mappedData = this.movies.map(movie => {
         var imdbRating = parseFloat(movie.imdbRating);
         var imdbVotes = parseInt(movie.imdbVotes.replace(",",""));
         var Runtime = parseInt(movie.Runtime.replace(" mins",""));
         var BoxOffice = (!movie.BoxOffice || movie.BoxOffice == "N/A") ? 0 : parseInt(movie.BoxOffice.replace(/\$|,/ig, ""));
-        return {imdbRating, imdbVotes, Runtime, BoxOffice, Year: movie.Year, Metascore: movie.Metascore, myScore: movie.myScore};
+
+        var movieGenres = movie.Genre.split(', ');
+        genres.map(genre => {
+          genreObject[genre] = movieGenres.includes(genre) ? 1 : 0;
+        })
+         return {imdbRating, imdbVotes, Runtime, BoxOffice, Year: movie.Year, Metascore: movie.Metascore, myScore: movie.myScore};
       })
       normalize('imdbRating', mappedData);
       normalize('imdbVotes', mappedData);
@@ -79,15 +91,18 @@ export default {
       normalize('Metascore', mappedData);
       normalize('BoxOffice', mappedData);
       this.data = mappedData.map(o =>{
-        return {input: { imdb: o.imdbRating, year: o.Year, votes: o.imdbVotes, time: o.Runtime, box: o.BoxOffice, mscore: o.Metascore}, output: { score: o.myScore/10 }};
+        return {input: Object.assign(genreObject, { imdb: o.imdbRating, year: o.Year, votes: o.imdbVotes, time: o.Runtime, box: o.BoxOffice, mscore: o.Metascore}), output: { score: o.myScore/10 }};
       });
-      console.log(this.data);
+      console.log(this.data)
     },
     train() {
-      net = new brain.NeuralNetwork({activation: this.activation, hiddenLayers:[5,2]});
-      net.train(this.data, { iterations: 40000, log:true });
+      this.transformData()
+      net = new brain.NeuralNetwork({activation: this.activation});
+      net.train(this.data, { iterations: 40000, log: true, logPeriod: 10000 });
+      this.trained = true;
     },
     run(index) {
+      this.transformData()
       var input = this.data[index].input
       this.movies[index].myScore = Math.round(net.run(input).score*10);
     },
